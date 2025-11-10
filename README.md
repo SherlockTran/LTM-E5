@@ -1,41 +1,41 @@
-# TLS Lab: SSL/TLS Integration and Encrypted TCP Tunnel (Go)
+# TLS Lab: Tích hợp SSL/TLS và TCP Tunnel mã hóa (Go)
 
-This project demonstrates:
+Dự án minh họa:
 
-- Integrating strong SSL/TLS into client-server apps (echo server/client).
-- Building a basic TCP tunnel that can encrypt the upstream leg (client → tunnel → TLS target) or be adapted the other way.
-- Generating a development CA, server, and client certificates (PowerShell script).
-- Using secure TLS settings: TLS 1.2/1.3, PFS curves, strong cipher suites, optional mTLS.
+- Tích hợp SSL/TLS an toàn vào ứng dụng client-server (echo server/client).
+- Xây dựng TCP tunnel cơ bản, mã hóa lưu lượng ở nhánh upstream (client → tunnel → TLS target) hoặc có thể mở rộng theo chiều ngược lại.
+- Sinh chứng chỉ phục vụ phát triển: CA, server, client (PowerShell script).
+- Thiết lập TLS an toàn: TLS 1.2/1.3, PFS, cipher suites mạnh, tùy chọn mTLS.
 
-## Structure
+## Cấu trúc
 
 ```
 cmd/
   echo-server/      # TLS Echo Server
   echo-client/      # TLS Echo Client
-  tunnel-server/    # TCP Tunnel that uses TLS upstream
+  tunnel-server/    # TCP Tunnel dùng TLS ở upstream
 internal/
-  tlsutil/          # Shared TLS configs with hardened defaults
+  tlsutil/          # TLS config dùng chung với mặc định an toàn
 scripts/
-  gen-certs.ps1     # Windows PowerShell script to generate CA/server/client certs
-certs/              # Generated certs (ignored until you run the script)
+  gen-certs.ps1     # PowerShell sinh CA/server/client certs
+certs/              # Thư mục chứa certs (tạo sau khi chạy script)
 ```
 
-## Prerequisites
+## Yêu cầu
 
 - Go 1.22+
-- OpenSSL installed and available on PATH (for `gen-certs.ps1`)
-- Windows PowerShell (script is Windows-first; users on Linux/macOS can run equivalent OpenSSL commands)
+- OpenSSL đã cài và có trong PATH (cho `gen-certs.ps1`)
+- Windows PowerShell (script ưu tiên Windows; Linux/macOS dùng lệnh OpenSSL tương đương)
 
-## Generate Certificates (development)
+## Tạo chứng chỉ (môi trường phát triển)
 
-Run in PowerShell from the repo root:
+Chạy tại thư mục gốc repo (PowerShell):
 
 ```powershell
 .\scripts\gen-certs.ps1 -OutDir certs -CN localhost
 ```
 
-This creates a dev CA (`ca.crt`/`ca.key`), a server cert for `localhost` (`server.crt`/`server.key`), and a client cert (`client.crt`/`client.key`).
+Sinh ra CA dev (`ca.crt`/`ca.key`), server cert cho `localhost` (`server.crt`/`server.key`) và client cert (`client.crt`/`client.key`).
 
 ## Build
 
@@ -45,75 +45,75 @@ go build ./cmd/echo-client
 go build ./cmd/tunnel-server
 ```
 
-The binaries are placed next to each `main.go` by default, or use `-o` to specify outputs.
+Mặc định, binary được đặt tại thư mục hiện tại (root). Có thể dùng `-o` để chỉ định đầu ra.
 
-## Run: TLS Echo Server + Client
+## Chạy: TLS Echo Server + Client
 
-1) Start server (no mTLS):
+1) Khởi động server (không mTLS):
 
 ```powershell
-.\cmd\echo-server\echo-server.exe -addr 0.0.0.0:8443 -cert certs/server.crt -key certs/server.key
+.\echo-server.exe -addr 0.0.0.0:8443 -cert certs/server.crt -key certs/server.key
 ```
 
-2) Run client:
+2) Chạy client:
 
 ```powershell
-.\cmd\echo-client\echo-client.exe -addr 127.0.0.1:8443 -servername localhost -ca certs/ca.crt
+.\echo-client.exe -addr 127.0.0.1:8443 -servername localhost -ca certs/ca.crt
 ```
 
-3) mTLS variant: server requires client certificate
+3) Bật mTLS (server yêu cầu client certificate):
 
 ```powershell
-.\cmd\echo-server\echo-server.exe -addr 0.0.0.0:8443 -cert certs/server.crt -key certs/server.key -mtls -ca certs/ca.crt
-.\cmd\echo-client\echo-client.exe -addr 127.0.0.1:8443 -servername localhost -ca certs/ca.crt -cert certs/client.crt -key certs/client.key
+.\echo-server.exe -addr 0.0.0.0:8443 -cert certs/server.crt -key certs/server.key -mtls -ca certs/ca.crt
+.\echo-client.exe -addr 127.0.0.1:8443 -servername localhost -ca certs/ca.crt -cert certs/client.crt -key certs/client.key
 ```
 
-## Run: TCP Tunnel (TLS upstream)
+Lưu ý: Nếu bạn build vào `cmd/...` hoặc `bin/...`, hãy đổi đường dẫn `.exe` tương ứng.
 
-- Tunnel listens locally in plaintext and connects to the upstream using TLS (default).
+## Chạy: TCP Tunnel (TLS upstream)
+
+- Tunnel lắng nghe local dạng plaintext và kết nối đến upstream bằng TLS (mặc định).
 
 ```powershell
-.\cmd\tunnel-server\tunnel-server.exe -listen 0.0.0.0:8080 -target example.com:443 -target-tls `
-  -servername example.com
+.\tunnel-server.exe -listen 0.0.0.0:8080 -target example.com:443 -target-tls -servername example.com
 ```
 
-- Then you can connect any TCP client to `127.0.0.1:8080`. For HTTPS testing:
+- Kết nối bất kỳ TCP client nào vào `127.0.0.1:8080`. Ví dụ test HTTPS qua tunnel:
 
 ```powershell
-# From Windows PowerShell, simple test using OpenSSL s_client via the tunnel:
 openssl s_client -connect 127.0.0.1:8080 -crlf
 GET / HTTP/1.1
 Host: example.com
 
 ```
 
-- To tunnel to your local TLS echo server:
+- Tunnel đến TLS echo server chạy local:
 
 ```powershell
-.\cmd\echo-server\echo-server.exe -addr 127.0.0.1:8443 -cert certs/server.crt -key certs/server.key
-.\cmd\tunnel-server\tunnel-server.exe -listen 0.0.0.0:8080 -target 127.0.0.1:8443 -target-tls -servername localhost -ca certs/ca.crt
+.\echo-server.exe -addr 127.0.0.1:8443 -cert certs/server.crt -key certs/server.key
+.\tunnel-server.exe -listen 0.0.0.0:8080 -target 127.0.0.1:8443 -target-tls -servername localhost -ca certs/ca.crt
 ```
 
-Now any plaintext client connecting to `127.0.0.1:8080` will have its traffic encrypted from the tunnel to the upstream echo server.
+Khi đó, client plaintext vào `127.0.0.1:8080` sẽ được mã hóa từ tunnel đến upstream echo server.
 
-## Security Notes
+## Ghi chú bảo mật
 
-- Minimum TLS version is 1.2; TLS 1.3 is enabled by default.
-- Strong ECDHE cipher suites are configured for PFS (Perfect Forward Secrecy).
-- Curve preferences prioritize X25519 and P-256.
-- Server can be configured to require client certificates (mTLS).
-- Use `-servername` on clients to match the certificate’s CN/SAN; when testing locally, use `localhost` and generate certs with SANs.
+- Tối thiểu TLS 1.2; bật TLS 1.3 theo mặc định.
+- PFS (Perfect Forward Secrecy) với ECDHE; ưu tiên curves X25519, P-256.
+- Cipher suites mạnh: AES-GCM, ChaCha20-Poly1305 (TLS 1.3 dùng bộ mặc định an toàn của Go).
+- Có thể bật mTLS để xác thực 2 chiều.
+- Client nên dùng `-servername` khớp CN/SAN của certificate; test local dùng `localhost` và cert có SAN phù hợp.
 
-## Extending
+## Mở rộng
 
-- Swap echo TCP for HTTP, WebSocket, or gRPC servers; reuse `internal/tlsutil` for secure TLS.
-- Flip the tunnel direction: accept TLS from client, forward plaintext to target (wrap the `listen` side with TLS).
-- Add rate limiting, connection pools, or load balancing for higher throughput.
+- Thay echo TCP bằng HTTP, WebSocket, hoặc gRPC; tái sử dụng `internal/tlsutil` cho TLS an toàn.
+- Đảo chiều tunnel: nhận TLS từ client, chuyển plaintext đến server đích (bọc TLS phía listen).
+- Bổ sung rate limiting, connection pool, hoặc load balancing để chịu tải tốt hơn.
 
-## Push to GitHub
+## Đưa lên GitHub
 
-1) Create a new repo on GitHub (empty, no README).
-2) From repo root, run:
+1) Tạo repo trống trên GitHub (không README).
+2) Tại thư mục gốc dự án, chạy:
 
 ```powershell
 git init
@@ -124,10 +124,10 @@ git remote add origin https://github.com/<your-username>/<your-repo>.git
 git push -u origin main
 ```
 
-## Troubleshooting
+Gợi ý: Nếu dùng HTTPS, khi Git hỏi password, dùng Personal Access Token (PAT). Hoặc cấu hình SSH key và dùng remote `git@github.com:<user>/<repo>.git`.
 
-- If the client fails certificate verification, check `-servername` and that the CA matches the server certificate.
-- For mTLS, ensure client cert/key are passed and signed by the same CA the server trusts.
-- On Windows, ensure `openssl` is installed and on PATH for the cert script.
+## Khắc phục sự cố
 
-
+- Client báo lỗi verify cert: kiểm tra `-servername` và CA (`-ca`) có khớp certificate của server.
+- mTLS: chắc chắn client cung cấp `-cert/-key` được CA tin cậy của server ký.
+- Windows: cần `openssl` trong PATH để chạy script tạo certs.
