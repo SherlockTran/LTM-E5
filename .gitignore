@@ -1,0 +1,19 @@
+# Binaries
+*.exe
+bin/
+
+# Certificates and private keys (do NOT commit secrets)
+certs/
+*.key
+*.csr
+*.pfx
+*.p12
+*.srl
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+
