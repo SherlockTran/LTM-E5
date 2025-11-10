@@ -110,22 +110,6 @@ Khi đó, client plaintext vào `127.0.0.1:8080` sẽ được mã hóa từ tun
 - Đảo chiều tunnel: nhận TLS từ client, chuyển plaintext đến server đích (bọc TLS phía listen).
 - Bổ sung rate limiting, connection pool, hoặc load balancing để chịu tải tốt hơn.
 
-## Đưa lên GitHub
-
-1) Tạo repo trống trên GitHub (không README).
-2) Tại thư mục gốc dự án, chạy:
-
-```powershell
-git init
-git add .
-git commit -m "Initial commit: TLS echo & tunnel with secure defaults"
-git branch -M main
-git remote add origin https://github.com/<your-username>/<your-repo>.git
-git push -u origin main
-```
-
-Gợi ý: Nếu dùng HTTPS, khi Git hỏi password, dùng Personal Access Token (PAT). Hoặc cấu hình SSH key và dùng remote `git@github.com:<user>/<repo>.git`.
-
 ## Khắc phục sự cố
 
 - Client báo lỗi verify cert: kiểm tra `-servername` và CA (`-ca`) có khớp certificate của server.
