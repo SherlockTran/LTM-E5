@@ -1,0 +1,18 @@
+syntax = "proto3";
+package echo;
+
+option go_package = "tls-lab/api/echo;echo";
+
+message EchoRequest {
+  string message = 1;
+}
+
+message EchoReply {
+  string message = 1;
+}
+
+service Echo {
+  rpc Say (EchoRequest) returns (EchoReply);
+}
+
+

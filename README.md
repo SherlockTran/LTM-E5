@@ -27,6 +27,102 @@ certs/              # Thư mục chứa certs (tạo sau khi chạy script)
 - OpenSSL đã cài và có trong PATH (cho `gen-certs.ps1`)
 - Windows PowerShell (script ưu tiên Windows; Linux/macOS dùng lệnh OpenSSL tương đương)
 
+## Hướng dẫn cho team: Clone và test nhanh
+
+1) Clone repo (PowerShell/CMD):
+   ```powershell
+   git clone https://github.com/<your-username>/<your-repo>.git
+   cd <your-repo>
+   ```
+
+2) Cài đặt yêu cầu tối thiểu
+   - Go 1.22+ (khuyến nghị mới nhất)
+   - OpenSSL trong PATH (để sinh cert): kiểm tra `openssl version`
+   - PowerShell cho Windows
+
+3) Sinh chứng chỉ dev
+   ```powershell
+   .\scripts\gen-certs.ps1 -OutDir certs -CN localhost
+   ```
+
+4) Build ứng dụng cơ bản
+   ```powershell
+   go build .\cmd\echo-server
+   go build .\cmd\echo-client
+   go build .\cmd\tunnel-server
+   go build .\cmd\grpc-server
+   go build .\cmd\grpc-client
+   ```
+
+5) Test Echo TLS
+   - Server:
+     ```powershell
+     .\echo-server.exe -addr 0.0.0.0:8443 -cert certs\server.crt -key certs\server.key
+     ```
+   - Client (cửa sổ khác):
+     ```powershell
+     .\echo-client.exe -addr 127.0.0.1:8443 -servername localhost -ca certs\ca.crt
+     ```
+
+6) Test Tunnel (plaintext → TLS upstream)
+   ```powershell
+   .\tunnel-server.exe -listen 0.0.0.0:8080 -target example.com:443 -target-tls -servername example.com
+   ```
+
+7) Test gRPC (JSON codec, không cần protoc)
+   - Server:
+     ```powershell
+     .\grpc-server.exe -addr 0.0.0.0:9443 -cert certs\server.crt -key certs\server.key
+     ```
+   - Client:
+     ```powershell
+     .\grpc-client.exe -addr 127.0.0.1:9443 -servername localhost -ca certs\ca.crt -msg "hello grpc"
+     ```
+
+8) gRPC protobuf chuẩn (dùng ghz/grpcurl) – chỉ làm khi cần benchmark protobuf
+   - Cài protoc (Windows): tải `protoc-<version>-win64.zip` và thêm `C:\protoc-<ver>\bin` vào PATH
+     ```powershell
+     $Env:Path = "$Env:Path;C:\protoc-33.0-win64\bin"
+     protoc --version
+     ```
+   - Cài plugin codegen và generate:
+     ```powershell
+     go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+     $Env:Path = "$Env:Path;$(go env GOPATH)\bin"
+     .\scripts\proto-gen.ps1
+     ```
+   - Build server/client protobuf:
+     ```powershell
+     go build .\cmd\grpcpb-server
+     go build .\cmd\grpcpb-client
+     ```
+   - Chạy test protobuf:
+     ```powershell
+     .\grpcpb-server.exe -addr 0.0.0.0:9443 -cert certs\server.crt -key certs\server.key
+     .\grpcpb-client.exe -addr 127.0.0.1:9443 -servername localhost -ca certs\ca.crt -msg "bench"
+     ```
+   - Cài ghz và benchmark (PowerShell một dòng, target ở cuối):
+     ```powershell
+     go install github.com/bojand/ghz/cmd/ghz@latest
+     $Env:Path = "$Env:Path;$(go env GOPATH)\bin"
+     ghz --proto .\api\echo.proto --call echo.Echo.Say -d '{"message":"bench"}' --cacert .\certs\ca.crt --authority localhost 127.0.0.1:9443
+     ```
+     - CMD tương đương (escape JSON):
+       ```cmd
+       ghz --proto .\api\echo.proto --call echo.Echo.Say -d "{\"message\":\"bench\"}" --cacert .\certs\ca.crt --authority localhost 127.0.0.1:9443
+       ```
+
+9) Nếu PowerShell chặn chạy script (.ps1):
+   ```powershell
+   Set-ExecutionPolicy -Scope Process Bypass -Force
+   ```
+
+10) Nếu lệnh không thấy `.exe` sau khi build: chạy từ thư mục gốc repo với `.\<tên>.exe`, hoặc dùng `go run`:
+   ```powershell
+   go run .\cmd\echo-server
+   ```
+
 ## Tạo chứng chỉ (môi trường phát triển)
 
 Chạy tại thư mục gốc repo (PowerShell):
@@ -52,7 +148,7 @@ Mặc định, binary được đặt tại thư mục hiện tại (root). Có 
 1) Khởi động server (không mTLS):
 
 ```powershell
-.\echo-server.exe -addr 0.0.0.0:8443 -cert certs/server.crt -key certs/server.key
+.\echo-server.exe -addr 0.0.0.0:8443 -cert certs/server.crt -key certs/server.key -pprof 127.0.0.1:6061
 ```
 
 2) Chạy client:
@@ -75,7 +171,7 @@ Lưu ý: Nếu bạn build vào `cmd/...` hoặc `bin/...`, hãy đổi đườn
 - Tunnel lắng nghe local dạng plaintext và kết nối đến upstream bằng TLS (mặc định).
 
 ```powershell
-.\tunnel-server.exe -listen 0.0.0.0:8080 -target example.com:443 -target-tls -servername example.com
+.\tunnel-server.exe -listen 0.0.0.0:8080 -target example.com:443 -target-tls -servername example.com -pprof 127.0.0.1:6060
 ```
 
 - Kết nối bất kỳ TCP client nào vào `127.0.0.1:8080`. Ví dụ test HTTPS qua tunnel:
@@ -110,8 +206,86 @@ Khi đó, client plaintext vào `127.0.0.1:8080` sẽ được mã hóa từ tun
 - Đảo chiều tunnel: nhận TLS từ client, chuyển plaintext đến server đích (bọc TLS phía listen).
 - Bổ sung rate limiting, connection pool, hoặc load balancing để chịu tải tốt hơn.
 
+## gRPC qua TLS (không cần protoc để chạy)
+
+- Server:
+  ```powershell
+  go build .\cmd\grpc-server
+  .\grpc-server.exe -addr 0.0.0.0:9443 -cert certs/server.crt -key certs/server.key
+  ```
+- Client:
+  ```powershell
+  go build .\cmd\grpc-client
+  .\grpc-client.exe -addr 127.0.0.1:9443 -servername localhost -ca certs/ca.crt -msg "hello grpc"
+  ```
+- Ghi chú:
+  - gRPC dùng JSON codec tự viết để tránh phụ thuộc `protoc` khi chạy demo.
+  - Vẫn cung cấp `api/echo.proto` để bạn benchmark với `ghz`.
+
+## gRPC protobuf “chuẩn” (dùng ghz/grpcurl + reflection)
+
+- Generate mã Go từ proto (PowerShell, yêu cầu cài protoc trước – link trong script):
+  ```powershell
+  .\scripts\proto-gen.ps1
+  ```
+- Build server/client protobuf:
+  ```powershell
+  go build .\cmd\grpcpb-server
+  go build .\cmd\grpcpb-client
+  ```
+- Chạy server có reflection:
+  ```powershell
+  .\grpcpb-server.exe -addr 0.0.0.0:9443 -cert certs\server.crt -key certs\server.key
+  ```
+- Test client protobuf:
+  ```powershell
+  .\grpcpb-client.exe -addr 127.0.0.1:9443 -servername localhost -ca certs\ca.crt -msg "bench"
+  ```
+- Benchmark với ghz (dùng proto, không cần JSON codec):
+  ```powershell
+  ghz --proto .\api\echo.proto --call echo.Echo.Say -d "{\"message\":\"bench\"}" --cacert .\certs\ca.crt --authority localhost 127.0.0.1:9443
+  ```
+  Hoặc dùng grpcurl:
+  ```powershell
+  grpcurl -cacert certs\ca.crt -authority localhost -proto api\echo.proto -d "{\"message\":\"bench\"}" 127.0.0.1:9443 echo.Echo.Say
+  ```
+
 ## Khắc phục sự cố
 
 - Client báo lỗi verify cert: kiểm tra `-servername` và CA (`-ca`) có khớp certificate của server.
 - mTLS: chắc chắn client cung cấp `-cert/-key` được CA tin cậy của server ký.
 - Windows: cần `openssl` trong PATH để chạy script tạo certs.
+
+## Quan sát & Benchmark
+
+- pprof: sau khi bật `-pprof`, truy cập:
+  - `http://127.0.0.1:6061/debug/pprof/` (echo-server)
+  - `http://127.0.0.1:6060/debug/pprof/` (tunnel-server)
+- Lấy CPU profile (30s) bằng PowerShell:
+  ```powershell
+  $out = "cpu.pb"
+  Invoke-WebRequest -Uri http://127.0.0.1:6061/debug/pprof/profile?seconds=30 -OutFile $out
+  ```
+  Mở bằng `go tool pprof`: `go tool pprof -http=:0 $out`
+
+- HTTP(S) benchmark (nếu test upstream HTTPS thật):
+  - Dùng `wrk` hoặc `hey`:
+    ```powershell
+    # ví dụ hey: 100 kết nối đồng thời, 30s
+    hey -c 100 -z 30s https://localhost:8443/
+    ```
+  - Hoặc qua tunnel:
+    ```powershell
+    hey -c 100 -z 30s http://127.0.0.1:8080/
+    ```
+
+- gRPC benchmark (sẽ bổ sung kèm gRPC Echo): dùng `ghz`.
+  - Ví dụ (dùng file proto, chỉ benchmark – không cần generate code):
+    ```powershell
+    ghz --insecure --proto .\api\echo.proto --call echo.Echo.Say `
+      -d '{\"message\":\"bench\"}' `
+      -H \"authority: localhost\" `
+      --cacert .\certs\ca.crt `
+      --host override localhost `
+      127.0.0.1:9443
+    ```

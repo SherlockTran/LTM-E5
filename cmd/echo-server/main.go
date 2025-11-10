@@ -6,9 +6,12 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"time"
 
+	_ "net/http/pprof"
+	bufpool "tls-lab/internal/pool"
 	"tls-lab/internal/tlsutil"
 )
 
@@ -21,8 +24,16 @@ func main() {
 		requireClientCert = flag.Bool("mtls", false, "Require client certificate (mTLS)")
 		readTimeout       = flag.Duration("read-timeout", 30*time.Second, "Per-connection read timeout")
 		writeTimeout      = flag.Duration("write-timeout", 30*time.Second, "Per-connection write timeout")
+		pprofAddr         = flag.String("pprof", "", "pprof listen address (e.g. 127.0.0.1:6061); empty to disable")
 	)
 	flag.Parse()
+
+	if *pprofAddr != "" {
+		go func() {
+			log.Printf("pprof listening on http://%s/debug/pprof/", *pprofAddr)
+			_ = http.ListenAndServe(*pprofAddr, nil)
+		}()
+	}
 
 	tlsCfg, err := tlsutil.NewServerTLSConfig(tlsutil.ServerTLSOptions{
 		CertFile:          *certFile,
@@ -70,29 +81,38 @@ func handleConn(c net.Conn, rt, wt time.Duration) {
 		)
 	}
 
-	buf := make([]byte, 32*1024)
-	for {
-		_ = c.SetReadDeadline(time.Now().Add(rt))
-		n, readErr := c.Read(buf)
-		if n > 0 {
-			_ = c.SetWriteDeadline(time.Now().Add(wt))
-			if _, writeErr := c.Write(buf[:n]); writeErr != nil {
-				log.Printf("write error: %v", writeErr)
-				return
-			}
-		}
-		if readErr != nil {
-			if isEOF(readErr) {
-				return
-			}
-			log.Printf("read error: %v", readErr)
-			return
-		}
-	}
+	// Use pooled buffer and io.Copy with deadlines to reduce allocations
+	bufPtr := bufpool.Get()
+	defer bufpool.Put(bufPtr)
+	buf := *bufPtr
+
+	reader := deadlineReader{c, rt}
+	writer := deadlineWriter{c, wt}
+	_, _ = io.CopyBuffer(writer, reader, buf)
 }
 
 func isEOF(err error) bool {
 	return err == io.EOF || os.IsTimeout(err)
+}
+
+type deadlineReader struct {
+	r  net.Conn
+	rt time.Duration
+}
+
+func (d deadlineReader) Read(p []byte) (int, error) {
+	_ = d.r.SetReadDeadline(time.Now().Add(d.rt))
+	return d.r.Read(p)
+}
+
+type deadlineWriter struct {
+	w  net.Conn
+	wt time.Duration
+}
+
+func (d deadlineWriter) Write(p []byte) (int, error) {
+	_ = d.w.SetWriteDeadline(time.Now().Add(d.wt))
+	return d.w.Write(p)
 }
 
 
